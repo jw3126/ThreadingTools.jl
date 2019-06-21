@@ -1,6 +1,2 @@
-using ThreadingTools
-using Test
-
-@testset "ThreadingTools.jl" begin
-    # Write your own tests here.
-end
+include("test_mapreduce.jl")
+include("test_map.jl")
