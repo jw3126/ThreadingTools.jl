@@ -36,4 +36,4 @@ julia> @btime TT.mapreduce(sin,*,data)
 ```
 
 # Credits
-ThreadingTools was inspired and reuses some code of [`KissThreading`](https://github.com/mohamed82008/KissThreading.jl)
+ThreadingTools was inspired by and reuses some code of [`KissThreading`](https://github.com/mohamed82008/KissThreading.jl)
