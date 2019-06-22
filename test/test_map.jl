@@ -72,7 +72,7 @@ end
         # https://discourse.julialang.org/t/debugging-strange-allocations/25488/5?u=jw3126
         TT.map(tuple, srcs...)
         b = @benchmark TT.map($tuple, $(srcs...)) evals=1 samples=1
-        @test b.allocs < 200
+        @test b.allocs < 400
     end
 end
 

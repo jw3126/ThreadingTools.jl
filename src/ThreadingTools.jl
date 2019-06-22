@@ -172,13 +172,13 @@ end
 struct Reduction{O}
     op::O
 end
-(red::Reduction)(f, src) = Base.mapreduce(f, red.op, src)
+(red::Reduction)(f, srcs...) = Base.mapreduce(f, red.op, srcs...)
 
-struct MapReduceWorkspace{R,F,B,V<:_RollingCutOut,OA<:OffsetArray}
+struct MapReduceWorkspace{R,F,B,V,OA<:OffsetArray}
     reduction::R
     f::F
     batches::Batches{B}
-    arena_src_view::Vector{V}
+    arena_src_views::V
     batch_reductions::OA
 end
 
@@ -188,52 +188,53 @@ function create_reduction(::typeof(mapreduce), op)
     Reduction(op)
 end
 
-function prepare(::typeof(mapreduce), f, op, src; init)
+function prepare(::typeof(mapreduce), f, op, srcs; init)
     red = create_reduction(mapreduce, op)
-    w = prepare_mapreduce_like(red, f, src, init)
+    w = prepare_mapreduce_like(red, f, srcs, init)
     return w
 end
 
-function mapreduce(f, op, src::AbstractArray; init=NoInit())
-    if isempty(src)
+function mapreduce(f, op, srcs::AbstractArray...; init=NoInit())
+    if isempty(first(srcs))
         if init isa NoInit
-            return Base.mapreduce(f, op, src)
+            return Base.mapreduce(f, op, srcs...)
         else
-            return Base.mapreduce(f, op, src, init=init)
+            return Base.mapreduce(f, op, srcs..., init=init)
         end
     end
-    w = prepare(mapreduce, f, op, src, init=init)
+    w = prepare(mapreduce, f, op, srcs, init=init)
     run!(w)
 end
 
-function reduce(op, src::AbstractArray; init=NoInit())
-    mapreduce(identity, op, src, init=init)
+function reduce(op, srcs::AbstractArray...; init=NoInit())
+    mapreduce(identity, op, srcs..., init=init)
 end
 
 for red in SYMBOLS_MAPREDUCE_LIKE
     @eval function $red end
     
-    @eval function prepare(::typeof($red), f, src)
+    @eval function prepare(::typeof($red), f, srcs)
         base_red = Base.$red
-        prepare_mapreduce_like(base_red, f, src)
+        prepare_mapreduce_like(base_red, f, srcs)
     end
     
     @eval function $red(f, src::AbstractArray)
         isempty(src) && return Base.$red(f, src)
-        w = prepare($red, f, src)
+        srcs = (src,)
+        w = prepare($red, f, srcs)
         run!(w)
     end
     @eval $red(src) = $red(identity, src)
 end
 
-function prepare_mapreduce_like(red, f, src::AbstractArray, init=NoInit())
-    batch_size = default_batch_size(length(src))
-    all_inds  = eachindex(IndexLinear(), src)
+function prepare_mapreduce_like(red, f, srcs, init=NoInit())
+    batch_size = default_batch_size(length(first(srcs)))
+    all_inds  = eachindex(IndexLinear(), srcs...)
     batches   = Batches(all_inds, batch_size)
     sample_inds = batches[1]
     nt = Threads.nthreads()
-    arena_src_view = [_RollingCutOut(src, sample_inds) for _ in 1:nt]
-    T = get_return_type(red, f, src)
+    arena_src_views = [[_RollingCutOut(src, sample_inds) for src in srcs] for _ in 1:nt]
+    T = get_return_type(red, f, srcs)
 
     if (init isa NoInit)
         batch_reductions = OffsetVector{T}(undef, 1:length(batches))
@@ -241,20 +242,22 @@ function prepare_mapreduce_like(red, f, src::AbstractArray, init=NoInit())
         batch_reductions = OffsetVector{T}(undef, 0:length(batches))
         batch_reductions[0] = init
     end
-    MapReduceWorkspace(red, f, batches, arena_src_view, batch_reductions)
+    MapReduceWorkspace(red, f, batches, arena_src_views, batch_reductions)
 end
 
-@inline function get_return_type(red, f, src)
-    Core.Compiler.return_type(red, Tuple{typeof(f), typeof(src)})
+@inline function get_return_type(red, f, srcs)
+    Core.Compiler.return_type(red, Tuple{typeof(f), typeof.(srcs)...})
 end
 
 @noinline function run!(o::MapReduceWorkspace)
     Threads.@threads for i in 1:length(o.batches)
         tid = Threads.threadid()
-        src_view = o.arena_src_view[tid]
+        src_views = o.arena_src_views[tid]
         inds = o.batches[i]
-        src_view.eachindex = inds
-        o.batch_reductions[i] = o.reduction(o.f, src_view)
+        for src_view in src_views
+            src_view.eachindex = inds
+        end
+        o.batch_reductions[i] = o.reduction(o.f, src_views...)
     end
     o.reduction(identity, o.batch_reductions)
 end

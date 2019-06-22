@@ -4,17 +4,16 @@ using Test
 import ThreadingTools; const TT=ThreadingTools
 using BenchmarkTools: @benchmark
 
-struct FreeSemiGroup{T}
+struct FreeMonoid{T}
     word::Vector{T}
 end
 
-const FSG{T} = FreeSemiGroup{T}
-
-function Base.:*(x::FSG, y::FSG)
-    FSG(vcat(x.word, y.word))
+function Base.:*(x::FreeMonoid, y::FreeMonoid)
+    FreeMonoid(vcat(x.word, y.word))
 end
-Base.:(==)(x::FSG, y::FSG) = x.word == y.word
-pure(x) = FSG([x])
+Base.:(==)(x::FreeMonoid, y::FreeMonoid) = x.word == y.word
+pure(x) = FreeMonoid([x])
+Base.one(::Type{FreeMonoid{T}}) where {T} = FreeMonoid{T}(T[])
 
 @testset "sum, prod, minimum, maximum" begin
     
@@ -45,9 +44,9 @@ pure(x) = FSG([x])
     data = randn(10^5)
     for red in [TT.sum, TT.prod, TT.minimum, TT.maximum]
         b = @benchmark ($red)($data) samples=1 evals=1
-        @test b.allocs < 100
+        @test b.allocs < 400
         b = @benchmark ($red)(sin, $data) samples=1 evals=1
-        @test b.allocs < 100
+        @test b.allocs < 400
     end
 end
 
@@ -59,39 +58,46 @@ end
     @test TT.mapreduce(identity, +, Int[]) == 0
     @test TT.reduce(+, Int[]) == 0
 
-    for setup in [
-        (f=identity, op=+, src=1:10,            init=0),
-        (f=identity, op=*, src=String[],        init="Hello"),
-        (f=identity, op=+, src=1:10,            init=21),
-        (f=x->2x,    op=*, src=collect(1:10),   init=21),
-        (f=x->2x,    op=*, src=rand(Int, 10^5), init=rand(Int)),
-        (f=pure,     op=*, src=randn(4),        init=pure(42.0)),
-        (f=pure,     op=*, src=randn(10^4),     init=pure(42.0)),
+    setups = [
+                  (f=identity,       op=+, srcs=(1:10,),                    init=0),
+                  (f=identity,       op=*, srcs=(String[],),                init="Hello"),
+                  (f=identity,       op=+, srcs=(1:10,),                    init=21),
+                  (f=x->2x,          op=*, srcs=(collect(1:10),),           init=21),
+                  (f=x->2x,          op=*, srcs=(rand(Int, 10^5),),         init=rand(Int)),
+                  (f=pure,           op=*, srcs=(randn(4),),                init=pure(42.0)),
+                  (f=pure,           op=*, srcs=(randn(10^4),),             init=pure(42.0)),
        ]
-        res_base = @inferred Base.mapreduce(setup.f, setup.op, setup.src, init=setup.init)
-        res_tt   = @inferred   TT.mapreduce(setup.f, setup.op, setup.src, init=setup.init)
+    for n in 1:4
+        s= (f=pure∘tuple,  op=*, srcs=[Float64[1] for _ in 1:n], init=pure(tuple(1.0:n...)))
+        push!(setups, s)
+    end
+
+    for setup in setups
+
+        res_base = @inferred Base.reduce(setup.op, map(setup.f, setup.srcs...))
+        res_tt   = @inferred   TT.reduce(setup.op, map(setup.f, setup.srcs...))
         @test res_base == res_tt
 
-        res_base = @inferred Base.mapreduce(setup.f, setup.op, setup.src)
-        res_tt   = @inferred   TT.mapreduce(setup.f, setup.op, setup.src)
+        res_base = @inferred Base.reduce(setup.op, map(setup.f, setup.srcs...), init=setup.init)
+        res_tt   = @inferred   TT.reduce(setup.op, map(setup.f, setup.srcs...), init=setup.init)
         @test res_base == res_tt
 
-        res_base = @inferred Base.reduce(setup.op, map(setup.f, setup.src), init=setup.init)
-        res_tt   = @inferred   TT.reduce(setup.op, map(setup.f, setup.src), init=setup.init)
+        res_base = @inferred Base.mapreduce(setup.f, setup.op, setup.srcs...)
+        res_tt   = @inferred   TT.mapreduce(setup.f, setup.op, setup.srcs...)
         @test res_base == res_tt
 
-        res_base = @inferred Base.reduce(setup.op, map(setup.f, setup.src))
-        res_tt   = @inferred   TT.reduce(setup.op, map(setup.f, setup.src))
+        res_base = @inferred Base.mapreduce(setup.f, setup.op, setup.srcs..., init=setup.init)
+        res_tt   = @inferred   TT.mapreduce(setup.f, setup.op, setup.srcs..., init=setup.init)
         @test res_base == res_tt
     end
 
     # performance
     data = randn(10^5)
     b = @benchmark TT.mapreduce(sin, +, $data) samples=1 evals=1
-    @test b.allocs < 200
+    @test b.allocs < 400
 
     b = @benchmark TT.reduce(+, $data) samples=1 evals=1
-    @test b.allocs < 200
+    @test b.allocs < 400
 end
 
 end#module
