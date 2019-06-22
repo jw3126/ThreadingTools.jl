@@ -34,7 +34,13 @@ pure(x) = FSG([x])
         @test Base.minimum(f, arr) === @inferred TT.minimum(f, arr)
         @test Base.maximum(f, arr) === @inferred TT.maximum(f, arr)
     end
-    
+
+    # empty
+    @test_throws ArgumentError TT.maximum(Int[])
+    @test_throws ArgumentError TT.minimum(Int[])
+    @test TT.prod(Int[]) === 1
+    @test TT.sum(Int[]) === 0
+
     # performance
     data = randn(10^5)
     for red in [TT.sum, TT.prod, TT.minimum, TT.maximum]
@@ -46,8 +52,16 @@ pure(x) = FSG([x])
 end
 
 @testset "TT.reduce, TT.mapreduce" begin
+    @test TT.mapreduce(pure, *, 1:1, init=pure(-1)) == pure(-1) * pure(1)
+    @test TT.mapreduce(pure, *, 1:1, init=pure(-1)) == mapreduce(pure, *, 1:1, init=pure(-1))
+
+    @test TT.mapreduce(identity, +, Int[], init=4) == 4
+    @test TT.mapreduce(identity, +, Int[]) == 0
+    @test TT.reduce(+, Int[]) == 0
+
     for setup in [
         (f=identity, op=+, src=1:10,            init=0),
+        (f=identity, op=*, src=String[],        init="Hello"),
         (f=identity, op=+, src=1:10,            init=21),
         (f=x->2x,    op=*, src=collect(1:10),   init=21),
         (f=x->2x,    op=*, src=rand(Int, 10^5), init=rand(Int)),
@@ -70,14 +84,8 @@ end
         res_tt   = @inferred   TT.reduce(setup.op, map(setup.f, setup.src))
         @test res_base == res_tt
     end
-    @test TT.mapreduce(pure, *, 1:1, init=pure(-1)) == pure(-1) * pure(1)
-    @test TT.mapreduce(pure, *, 1:1, init=pure(-1)) == mapreduce(pure, *, 1:1, init=pure(-1))
-
-    @test_broken TT.mapreduce(identity, +, Int[], init=0) == 0
-    @test_broken TT.reduce(identity, +, Int[]) == 0
 
     # performance
-
     data = randn(10^5)
     b = @benchmark TT.mapreduce(sin, +, $data) samples=1 evals=1
     @test b.allocs < 200

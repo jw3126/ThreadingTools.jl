@@ -59,7 +59,7 @@ end
     end
 
     # TT.map empty
-    @test_broken TT.map(+, Int[], Float64[]) == Float64[]
+    @test TT.map(+, Int[], Float64[]) == Float64[]
 
     @test_throws DimensionMismatch TT.map(+, randn(5), randn(4))
     @test_throws DimensionMismatch TT.map!(+, randn(4), randn(5), randn(4))

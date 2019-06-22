@@ -142,7 +142,6 @@ end
 end
 
 @noinline function prepare(::typeof(map!), f, dst, srcs)
-    isempty(first(srcs)) && return dst
     batch_size = default_batch_size(length(dst))
     # we use IndexLinear since _RollingCutOut implementation
     # does not support other indexing well
@@ -156,6 +155,7 @@ end
 end
 
 @noinline function map!(f, dst, srcs::AbstractArray...)
+    isempty(first(srcs)) && return dst
     w = prepare(map!, f, dst, srcs)
     run!(w)
     dst
@@ -195,7 +195,13 @@ function prepare(::typeof(mapreduce), f, op, src; init)
 end
 
 function mapreduce(f, op, src::AbstractArray; init=NoInit())
-    @argcheck !isempty(src)
+    if isempty(src)
+        if init isa NoInit
+            return Base.mapreduce(f, op, src)
+        else
+            return Base.mapreduce(f, op, src, init=init)
+        end
+    end
     w = prepare(mapreduce, f, op, src, init=init)
     run!(w)
 end
@@ -213,7 +219,7 @@ for red in SYMBOLS_MAPREDUCE_LIKE
     end
     
     @eval function $red(f, src::AbstractArray)
-        @argcheck !isempty(src)
+        isempty(src) && return Base.$red(f, src)
         w = prepare($red, f, src)
         run!(w)
     end
