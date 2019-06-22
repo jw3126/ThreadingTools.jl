@@ -67,9 +67,15 @@ end
                   (f=pure,           op=*, srcs=(randn(4),),                init=pure(42.0)),
                   (f=pure,           op=*, srcs=(randn(10^4),),             init=pure(42.0)),
        ]
-    for n in 1:4
-        s= (f=pure∘tuple,  op=*, srcs=[Float64[1] for _ in 1:n], init=pure(tuple(1.0:n...)))
-        push!(setups, s)
+
+    # multi arg mapreduce
+    if VERSION >= v"1.2-"
+        for n in 1:4
+            s= (f=pure∘tuple,  op=*, srcs=[Float64[1] for _ in 1:n], init=pure(tuple(1.0:n...)))
+            push!(setups, s)
+        end
+    else
+        @warn "Skipping multi arg mapreduce tests, on julia $VERSION"
     end
 
     for setup in setups
