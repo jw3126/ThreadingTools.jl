@@ -141,6 +141,11 @@ end
     end
 end
 
+function create_arena_src_views(srcs, sample_inds)
+    nt = Threads.nthreads()
+    [Base.map(src -> _RollingCutOut(src, sample_inds), srcs) for _ in 1:nt]
+end
+
 @noinline function prepare(::typeof(map!), f, dst, srcs)
     batch_size = default_batch_size(length(dst))
     # we use IndexLinear since _RollingCutOut implementation
@@ -150,7 +155,7 @@ end
     sample_inds = batches[1]
     nt = Threads.nthreads()
     arena_dst_view  = [_RollingCutOut(dst, sample_inds) for _ in 1:nt]
-    arena_src_views = [[_RollingCutOut(src, sample_inds) for src in srcs] for _ in 1:nt]
+    arena_src_views = create_arena_src_views(srcs, sample_inds)
     return MapWorkspace(f, batches, arena_dst_view, arena_src_views)
 end
 
@@ -232,8 +237,8 @@ function prepare_mapreduce_like(red, f, srcs, init=NoInit())
     all_inds  = eachindex(IndexLinear(), srcs...)
     batches   = Batches(all_inds, batch_size)
     sample_inds = batches[1]
-    nt = Threads.nthreads()
-    arena_src_views = [[_RollingCutOut(src, sample_inds) for src in srcs] for _ in 1:nt]
+
+    arena_src_views = create_arena_src_views(srcs, sample_inds)
     T = get_return_type(red, f, srcs)
 
     if (init isa NoInit)

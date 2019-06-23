@@ -2,6 +2,7 @@ module Perf
 import ThreadingTools; const TT = ThreadingTools
 using BenchmarkTools
 
+
 macro race(f, args...)
     tt_call   = :((TT.$f)($(args...)))
     base_call = :((Base.$f)($(args...)))
@@ -23,5 +24,6 @@ data = randn(10^6)
 @race(minimum, sin, data)
 @race(maximum, sin, data)
 @race(mapreduce, sin, +, data)
+@race(map, sin, data)
 
 end#module
