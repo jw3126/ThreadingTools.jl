@@ -146,8 +146,7 @@ function create_arena_src_views(srcs, sample_inds)
     [Base.map(src -> _RollingCutOut(src, sample_inds), srcs) for _ in 1:nt]
 end
 
-@noinline function prepare(::typeof(map!), f, dst, srcs)
-    batch_size = default_batch_size(length(dst))
+@noinline function prepare(::typeof(map!), f, dst, srcs; batch_size::Int)
     # we use IndexLinear since _RollingCutOut implementation
     # does not support other indexing well
     all_inds  = eachindex(IndexLinear(), srcs...)
@@ -159,18 +158,21 @@ end
     return MapWorkspace(f, batches, arena_dst_view, arena_src_views)
 end
 
-@noinline function map!(f, dst, srcs::AbstractArray...)
+@noinline function map!(f, dst, srcs::AbstractArray...;
+                        batch_size=default_batch_size(length(dst)))
     isempty(first(srcs)) && return dst
-    w = prepare(map!, f, dst, srcs)
+    w = prepare(map!, f, dst, srcs, batch_size=batch_size)
     run!(w)
     dst
 end
 
-function map(f, srcs::AbstractArray...)
+function map(f, srcs::AbstractArray...; 
+             batch_size=default_batch_size(length(first(srcs)))
+            )
     g = Base.Generator(f,srcs...)
     T = Base.@default_eltype(g)
     dst = similar(first(srcs), T)
-    map!(f, dst, srcs...)
+    map!(f, dst, srcs...; batch_size=batch_size)
 end
 
 ############################## mapreduce(like) ##############################
@@ -193,13 +195,16 @@ function create_reduction(::typeof(mapreduce), op)
     Reduction(op)
 end
 
-function prepare(::typeof(mapreduce), f, op, srcs; init)
+function prepare(::typeof(mapreduce), f, op, srcs; init, batch_size::Int)
     red = create_reduction(mapreduce, op)
-    w = prepare_mapreduce_like(red, f, srcs, init)
+    w = prepare_mapreduce_like(red, f, srcs, init, batch_size=batch_size)
     return w
 end
 
-function mapreduce(f, op, srcs::AbstractArray...; init=NoInit())
+function mapreduce(f, op, srcs::AbstractArray...;
+                   init=NoInit(),
+                   batch_size= default_batch_size(length(first(srcs)))
+                  )
     if isempty(first(srcs))
         if init isa NoInit
             return Base.mapreduce(f, op, srcs...)
@@ -207,33 +212,33 @@ function mapreduce(f, op, srcs::AbstractArray...; init=NoInit())
             return Base.mapreduce(f, op, srcs..., init=init)
         end
     end
-    w = prepare(mapreduce, f, op, srcs, init=init)
+    w = prepare(mapreduce, f, op, srcs, init=init, batch_size=batch_size)
     run!(w)
 end
 
-function reduce(op, srcs::AbstractArray...; init=NoInit())
-    mapreduce(identity, op, srcs..., init=init)
+function reduce(op, srcs::AbstractArray...; kw...)
+    mapreduce(identity, op, srcs...; kw...)
 end
 
 for red in SYMBOLS_MAPREDUCE_LIKE
     @eval function $red end
-    
-    @eval function prepare(::typeof($red), f, srcs)
+
+    @eval function prepare(::typeof($red), f, srcs; batch_size::Int)
         base_red = Base.$red
-        prepare_mapreduce_like(base_red, f, srcs)
+        prepare_mapreduce_like(base_red, f, srcs, batch_size=batch_size)
     end
-    
-    @eval function $red(f, src::AbstractArray)
+
+    @eval function $red(f, src::AbstractArray;
+                        batch_size=default_batch_size(length(src)))
         isempty(src) && return Base.$red(f, src)
         srcs = (src,)
-        w = prepare($red, f, srcs)
+        w = prepare($red, f, srcs, batch_size=batch_size)
         run!(w)
     end
-    @eval $red(src) = $red(identity, src)
+    @eval $red(src; kw...) = $red(identity, src; kw...)
 end
 
-function prepare_mapreduce_like(red, f, srcs, init=NoInit())
-    batch_size = default_batch_size(length(first(srcs)))
+function prepare_mapreduce_like(red, f, srcs, init=NoInit(); batch_size::Int)
     all_inds  = eachindex(IndexLinear(), srcs...)
     batches   = Batches(all_inds, batch_size)
     sample_inds = batches[1]

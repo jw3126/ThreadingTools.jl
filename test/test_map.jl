@@ -27,7 +27,7 @@ end
     src = OffsetArray(rand(3), -2:0)
     dst = similar(src)
     @test TT.map!(sqrt, dst, src) == Base.map(sqrt, src)
-    @test Base.map(sqrt, src) == TT.map(sqrt, src)
+    @test Base.map(sqrt, src) == TT.map(sqrt, src, batch_size=2)
 
     src = (1:2, [1.0, 2.0], [false, true])
     @test Base.map(*, src...) ==  TT.map(*, src...)
@@ -72,7 +72,7 @@ end
         # https://discourse.julialang.org/t/debugging-strange-allocations/25488/5?u=jw3126
         TT.map(tuple, srcs...)
         b = @benchmark TT.map($tuple, $(srcs...)) evals=1 samples=1
-        @test b.allocs < 400
+        @test b.allocs < 200
     end
 end
 

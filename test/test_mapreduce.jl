@@ -4,6 +4,8 @@ using Test
 import ThreadingTools; const TT=ThreadingTools
 using BenchmarkTools: @benchmark
 
+const MAX_ALLOCS = 120
+
 struct FreeMonoid{T}
     word::Vector{T}
 end
@@ -27,7 +29,7 @@ Base.one(::Type{FreeMonoid{T}}) where {T} = FreeMonoid{T}(T[])
         @test Base.sum(arr) ≈ @inferred TT.sum(arr)
         @test Base.minimum(arr) === @inferred TT.minimum(arr)
         @test Base.maximum(arr) === @inferred TT.maximum(arr)
-        
+
         @test Base.prod(f, arr) ≈ @inferred TT.prod(f, arr)
         @test Base.sum(f, arr) ≈ @inferred TT.sum(f, arr)
         @test Base.minimum(f, arr) === @inferred TT.minimum(f, arr)
@@ -40,13 +42,17 @@ Base.one(::Type{FreeMonoid{T}}) where {T} = FreeMonoid{T}(T[])
     @test TT.prod(Int[]) === 1
     @test TT.sum(Int[]) === 0
 
+    @test TT.sum([1,2,3], batch_size=100) === 6
+    @test TT.sum(x->2x, [1,2,3], batch_size=100) === 12
+    @test_throws ArgumentError TT.sum([1,2,3], batch_size=-100)
+
     # performance
     data = randn(10^5)
     for red in [TT.sum, TT.prod, TT.minimum, TT.maximum]
         b = @benchmark ($red)($data) samples=1 evals=1
-        @test b.allocs < 400
+        @test b.allocs < MAX_ALLOCS
         b = @benchmark ($red)(sin, $data) samples=1 evals=1
-        @test b.allocs < 400
+        @test b.allocs < MAX_ALLOCS
     end
 end
 
@@ -57,6 +63,9 @@ end
     @test TT.mapreduce(identity, +, Int[], init=4) == 4
     @test TT.mapreduce(identity, +, Int[]) == 0
     @test TT.reduce(+, Int[]) == 0
+
+    @test TT.reduce(+, [1,2,3], batch_size=3) === 6
+    @test TT.mapreduce(x->2x, +, [1,2,3], batch_size=3) === 12
 
     setups = [
                   (f=identity,       op=+, srcs=(1:10,),                    init=0),
@@ -100,10 +109,10 @@ end
     # performance
     data = randn(10^5)
     b = @benchmark TT.mapreduce(sin, +, $data) samples=1 evals=1
-    @test b.allocs < 400
+    @test b.allocs < MAX_ALLOCS
 
     b = @benchmark TT.reduce(+, $data) samples=1 evals=1
-    @test b.allocs < 400
+    @test b.allocs < MAX_ALLOCS
 end
 
 end#module
