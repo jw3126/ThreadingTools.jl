@@ -2,6 +2,8 @@ module ThreadingTools
 using ArgCheck
 using OffsetArrays
 
+export tmap, tmap!, tmapreduce, treduce
+
 ############################## docs ##############################
 function _make_docstring(signature, fname)
     """
@@ -11,37 +13,43 @@ function _make_docstring(signature, fname)
     """
 end
 
+function tname(s::Symbol)
+    Symbol("t"*string(s))
+end
+
 const SYMBOLS_MAPREDUCE_LIKE = [:sum, :prod, :minimum, :maximum]
 for fun in SYMBOLS_MAPREDUCE_LIKE
-    signature = "$fun([f,] src::AbstractArray)"
+    tfun = tname(fun)
+    signature = "$tfun([f,] src::AbstractArray)"
     docstring = _make_docstring(signature, fun)
     @eval begin
+        export $tfun
         """
         $($docstring)
         """
-        function $fun end
+        function $tfun end
     end
 end
 
 """
-$(_make_docstring("map!(f, dst::AbstractArray, srcs::AbstractArray...)", :map!))
+$(_make_docstring("tmap!(f, dst::AbstractArray, srcs::AbstractArray...)", :map!))
 """
-function map! end
+function tmap! end
 
 """
-$(_make_docstring("map(f, srcs::AbstractArray...)", :map))
+$(_make_docstring("tmap(f, srcs::AbstractArray...)", :map))
 """
-function map end
+function tmap end
 
 """
-$(_make_docstring("mapreduce(f, op, src::AbstractArray [;init])", :mapreduce))
+$(_make_docstring("tmapreduce(f, op, src::AbstractArray [;init])", :map))
 """
-function mapreduce end
+function tmapreduce end
 
 """
-$(_make_docstring("reduce(op, src::AbstractArray [;init])", :reduce))
+$(_make_docstring("treduce(op, src::AbstractArray [;init])", :reduce))
 """
-function reduce end
+function treduce end
 
 ############################## Helper functions ##############################
 struct Batches{V}
@@ -117,7 +125,7 @@ end
     @inbounds o.array[i] = val
 end
 
-############################## map, map! ##############################
+############################## tmap, tmap! ##############################
 struct MapWorkspace{F,B,AD,AS}
     f::F
     batches::B
@@ -146,7 +154,7 @@ function create_arena_src_views(srcs, sample_inds)
     [Base.map(src -> _RollingCutOut(src, sample_inds), srcs) for _ in 1:nt]
 end
 
-@noinline function prepare(::typeof(map!), f, dst, srcs; batch_size::Int)
+@noinline function prepare(::typeof(tmap!), f, dst, srcs; batch_size::Int)
     # we use IndexLinear since _RollingCutOut implementation
     # does not support other indexing well
     all_inds  = eachindex(IndexLinear(), srcs...)
@@ -158,24 +166,24 @@ end
     return MapWorkspace(f, batches, arena_dst_view, arena_src_views)
 end
 
-@noinline function map!(f, dst, srcs::AbstractArray...;
+@noinline function tmap!(f, dst, srcs::AbstractArray...;
                         batch_size=default_batch_size(length(dst)))
     isempty(first(srcs)) && return dst
-    w = prepare(map!, f, dst, srcs, batch_size=batch_size)
+    w = prepare(tmap!, f, dst, srcs, batch_size=batch_size)
     run!(w)
     dst
 end
 
-function map(f, srcs::AbstractArray...; 
+function tmap(f, srcs::AbstractArray...; 
              batch_size=default_batch_size(length(first(srcs)))
             )
     g = Base.Generator(f,srcs...)
     T = Base.@default_eltype(g)
     dst = similar(first(srcs), T)
-    map!(f, dst, srcs...; batch_size=batch_size)
+    tmap!(f, dst, srcs...; batch_size=batch_size)
 end
 
-############################## mapreduce(like) ##############################
+############################## tmapreduce(like) ##############################
 struct Reduction{O}
     op::O
 end
@@ -191,17 +199,17 @@ end
 
 struct NoInit end
 
-function create_reduction(::typeof(mapreduce), op)
+function create_reduction(::typeof(tmapreduce), op)
     Reduction(op)
 end
 
-function prepare(::typeof(mapreduce), f, op, srcs; init, batch_size::Int)
-    red = create_reduction(mapreduce, op)
+function prepare(::typeof(tmapreduce), f, op, srcs; init, batch_size::Int)
+    red = create_reduction(tmapreduce, op)
     w = prepare_mapreduce_like(red, f, srcs, init, batch_size=batch_size)
     return w
 end
 
-function mapreduce(f, op, srcs::AbstractArray...;
+function tmapreduce(f, op, srcs::AbstractArray...;
                    init=NoInit(),
                    batch_size= default_batch_size(length(first(srcs)))
                   )
@@ -212,30 +220,32 @@ function mapreduce(f, op, srcs::AbstractArray...;
             return Base.mapreduce(f, op, srcs..., init=init)
         end
     end
-    w = prepare(mapreduce, f, op, srcs, init=init, batch_size=batch_size)
+    w = prepare(tmapreduce, f, op, srcs, init=init, batch_size=batch_size)
     run!(w)
 end
 
-function reduce(op, srcs::AbstractArray...; kw...)
-    mapreduce(identity, op, srcs...; kw...)
+function treduce(op, srcs::AbstractArray...; kw...)
+    tmapreduce(identity, op, srcs...; kw...)
 end
 
-for red in SYMBOLS_MAPREDUCE_LIKE
-    @eval function $red end
 
-    @eval function prepare(::typeof($red), f, srcs; batch_size::Int)
+for red in SYMBOLS_MAPREDUCE_LIKE
+    tred = tname(red)
+    @eval function $tred end
+
+    @eval function prepare(::typeof($tred), f, srcs; batch_size::Int)
         base_red = Base.$red
         prepare_mapreduce_like(base_red, f, srcs, batch_size=batch_size)
     end
 
-    @eval function $red(f, src::AbstractArray;
+    @eval function $tred(f, src::AbstractArray;
                         batch_size=default_batch_size(length(src)))
         isempty(src) && return Base.$red(f, src)
         srcs = (src,)
-        w = prepare($red, f, srcs, batch_size=batch_size)
+        w = prepare($tred, f, srcs, batch_size=batch_size)
         run!(w)
     end
-    @eval $red(src; kw...) = $red(identity, src; kw...)
+    @eval $tred(src; kw...) = $tred(identity, src; kw...)
 end
 
 function prepare_mapreduce_like(red, f, srcs, init=NoInit(); batch_size::Int)
