@@ -1,7 +1,7 @@
 module TestTMapreduce
 
 using Test
-import ThreadingTools; const TT=ThreadingTools
+using ThreadingTools
 using BenchmarkTools: @benchmark
 
 const MAX_ALLOCS = 120
@@ -25,30 +25,30 @@ Base.one(::Type{FreeMonoid{T}}) where {T} = FreeMonoid{T}(T[])
             (identity, randn(10)),
             (x -> 2x, rand(Int, 10000)),
         ]
-        @test Base.prod(arr) ≈ @inferred TT.prod(arr)
-        @test Base.sum(arr) ≈ @inferred TT.sum(arr)
-        @test Base.minimum(arr) === @inferred TT.minimum(arr)
-        @test Base.maximum(arr) === @inferred TT.maximum(arr)
+        @test Base.prod(arr) ≈ @inferred tprod(arr)
+        @test Base.sum(arr) ≈ @inferred tsum(arr)
+        @test Base.minimum(arr) === @inferred tminimum(arr)
+        @test Base.maximum(arr) === @inferred tmaximum(arr)
 
-        @test Base.prod(f, arr) ≈ @inferred TT.prod(f, arr)
-        @test Base.sum(f, arr) ≈ @inferred TT.sum(f, arr)
-        @test Base.minimum(f, arr) === @inferred TT.minimum(f, arr)
-        @test Base.maximum(f, arr) === @inferred TT.maximum(f, arr)
+        @test Base.prod(f, arr) ≈ @inferred tprod(f, arr)
+        @test Base.sum(f, arr) ≈ @inferred tsum(f, arr)
+        @test Base.minimum(f, arr) === @inferred tminimum(f, arr)
+        @test Base.maximum(f, arr) === @inferred tmaximum(f, arr)
     end
 
     # empty
-    @test_throws ArgumentError TT.maximum(Int[])
-    @test_throws ArgumentError TT.minimum(Int[])
-    @test TT.prod(Int[]) === 1
-    @test TT.sum(Int[]) === 0
+    @test_throws ArgumentError tmaximum(Int[])
+    @test_throws ArgumentError tminimum(Int[])
+    @test tprod(Int[]) === 1
+    @test tsum(Int[]) === 0
 
-    @test TT.sum([1,2,3], batch_size=100) === 6
-    @test TT.sum(x->2x, [1,2,3], batch_size=100) === 12
-    @test_throws ArgumentError TT.sum([1,2,3], batch_size=-100)
+    @test tsum([1,2,3], batch_size=100) === 6
+    @test tsum(x->2x, [1,2,3], batch_size=100) === 12
+    @test_throws ArgumentError tsum([1,2,3], batch_size=-100)
 
     # performance
     data = randn(10^5)
-    for red in [TT.sum, TT.prod, TT.minimum, TT.maximum]
+    for red in [tsum, tprod, tminimum, tmaximum]
         b = @benchmark ($red)($data) samples=1 evals=1
         @test b.allocs < MAX_ALLOCS
         b = @benchmark ($red)(sin, $data) samples=1 evals=1
@@ -56,16 +56,16 @@ Base.one(::Type{FreeMonoid{T}}) where {T} = FreeMonoid{T}(T[])
     end
 end
 
-@testset "TT.reduce, TT.mapreduce" begin
-    @test TT.mapreduce(pure, *, 1:1, init=pure(-1)) == pure(-1) * pure(1)
-    @test TT.mapreduce(pure, *, 1:1, init=pure(-1)) == mapreduce(pure, *, 1:1, init=pure(-1))
+@testset "treduce, tmapreduce" begin
+    @test tmapreduce(pure, *, 1:1, init=pure(-1)) == pure(-1) * pure(1)
+    @test tmapreduce(pure, *, 1:1, init=pure(-1)) == mapreduce(pure, *, 1:1, init=pure(-1))
 
-    @test TT.mapreduce(identity, +, Int[], init=4) == 4
-    @test TT.mapreduce(identity, +, Int[]) == 0
-    @test TT.reduce(+, Int[]) == 0
+    @test tmapreduce(identity, +, Int[], init=4) == 4
+    @test tmapreduce(identity, +, Int[]) == 0
+    @test treduce(+, Int[]) == 0
 
-    @test TT.reduce(+, [1,2,3], batch_size=3) === 6
-    @test TT.mapreduce(x->2x, +, [1,2,3], batch_size=3) === 12
+    @test treduce(+, [1,2,3], batch_size=3) === 6
+    @test tmapreduce(x->2x, +, [1,2,3], batch_size=3) === 12
 
     setups = [
                   (f=identity,       op=+, srcs=(1:10,),                    init=0),
@@ -90,28 +90,28 @@ end
     for setup in setups
 
         res_base = @inferred Base.reduce(setup.op, map(setup.f, setup.srcs...))
-        res_tt   = @inferred   TT.reduce(setup.op, map(setup.f, setup.srcs...))
+        res_tt   = @inferred   treduce(setup.op, map(setup.f, setup.srcs...))
         @test res_base == res_tt
 
         res_base = @inferred Base.reduce(setup.op, map(setup.f, setup.srcs...), init=setup.init)
-        res_tt   = @inferred   TT.reduce(setup.op, map(setup.f, setup.srcs...), init=setup.init)
+        res_tt   = @inferred   treduce(setup.op, map(setup.f, setup.srcs...), init=setup.init)
         @test res_base == res_tt
 
         res_base = @inferred Base.mapreduce(setup.f, setup.op, setup.srcs...)
-        res_tt   = @inferred   TT.mapreduce(setup.f, setup.op, setup.srcs...)
+        res_tt   = @inferred   tmapreduce(setup.f, setup.op, setup.srcs...)
         @test res_base == res_tt
 
         res_base = @inferred Base.mapreduce(setup.f, setup.op, setup.srcs..., init=setup.init)
-        res_tt   = @inferred   TT.mapreduce(setup.f, setup.op, setup.srcs..., init=setup.init)
+        res_tt   = @inferred   tmapreduce(setup.f, setup.op, setup.srcs..., init=setup.init)
         @test res_base == res_tt
     end
 
     # performance
     data = randn(10^5)
-    b = @benchmark TT.mapreduce(sin, +, $data) samples=1 evals=1
+    b = @benchmark tmapreduce(sin, +, $data) samples=1 evals=1
     @test b.allocs < MAX_ALLOCS
 
-    b = @benchmark TT.reduce(+, $data) samples=1 evals=1
+    b = @benchmark treduce(+, $data) samples=1 evals=1
     @test b.allocs < MAX_ALLOCS
 end
 

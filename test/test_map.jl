@@ -1,8 +1,8 @@
 module TestTMap
 
 using Test
-import ThreadingTools; const TT=ThreadingTools
-using .TT: Batches
+using ThreadingTools
+using ThreadingTools: Batches
 using BenchmarkTools
 using OffsetArrays
 
@@ -22,15 +22,15 @@ using OffsetArrays
     @test vcat([b[i] for i in eachindex(b)]...) == inds
 end
 
-@testset "test TT.map, TT.map!" begin
+@testset "test tmap, tmap!" begin
 
     src = OffsetArray(rand(3), -2:0)
     dst = similar(src)
-    @test TT.map!(sqrt, dst, src) == Base.map(sqrt, src)
-    @test Base.map(sqrt, src) == TT.map(sqrt, src, batch_size=2)
+    @test tmap!(sqrt, dst, src) == Base.map(sqrt, src)
+    @test Base.map(sqrt, src) == tmap(sqrt, src, batch_size=2)
 
     src = (1:2, [1.0, 2.0], [false, true])
-    @test Base.map(*, src...) ==  TT.map(*, src...)
+    @test Base.map(*, src...) ==  tmap(*, src...)
 
     for (f, src) in [
               (tuple, tuple([randn(2) for _ in 1:3]...)),
@@ -50,28 +50,28 @@ end
         dst_TTmap = similar(src1, T)
 
         res_map!  = @inferred map!(f, dst_map, src...)
-        res_TTmap! = @inferred TT.map!(f, dst_TTmap, src...)
+        res_TTmap! = @inferred tmap!(f, dst_TTmap, src...)
         res_map   = @inferred map(f, src...)
-        res_TTmap  = @inferred TT.map(f, src...)
+        res_TTmap  = @inferred tmap(f, src...)
         @test typeof(res_map) == typeof(res_TTmap)
         @test res_map == res_TTmap
         @test res_map! == res_TTmap!
     end
 
-    # TT.map empty
-    @test TT.map(+, Int[], Float64[]) == Float64[]
+    # tmap empty
+    @test tmap(+, Int[], Float64[]) == Float64[]
 
-    @test_throws DimensionMismatch TT.map(+, randn(5), randn(4))
-    @test_throws DimensionMismatch TT.map!(+, randn(4), randn(5), randn(4))
-    @test_throws DimensionMismatch TT.map!(+, randn(5), randn(5), randn(4))
+    @test_throws DimensionMismatch tmap(+, randn(5), randn(4))
+    @test_throws DimensionMismatch tmap!(+, randn(4), randn(5), randn(4))
+    @test_throws DimensionMismatch tmap!(+, randn(5), randn(5), randn(4))
 
     # allocations
     for n in 1:4
         srcs = [randn(10^4) for _ in 1:n]
         # circumvent bug in julia < 1.2:
         # https://discourse.julialang.org/t/debugging-strange-allocations/25488/5?u=jw3126
-        TT.map(tuple, srcs...)
-        b = @benchmark TT.map($tuple, $(srcs...)) evals=1 samples=1
+        tmap(tuple, srcs...)
+        b = @benchmark tmap($tuple, $(srcs...)) evals=1 samples=1
         @test b.allocs < 200
     end
 end

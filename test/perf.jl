@@ -1,10 +1,11 @@
 module Perf
-import ThreadingTools; const TT = ThreadingTools
+using ThreadingTools
+using ThreadingTools: tname
 using BenchmarkTools
 
-
 macro race(f, args...)
-    tt_call   = :((TT.$f)($(args...)))
+    tf = tname(f)
+    tt_call   = :(($tf)($(args...)))
     base_call = :((Base.$f)($(args...)))
     call_str = string(:($f($(args...))))
     quote
